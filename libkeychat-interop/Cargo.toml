@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 impl_a = { path = "../libkeychat", package = "libkeychat" }
 impl_b = { path = "../libkeychat", package = "libkeychat-b" }
-libsignal-protocol = { path = "/Users/kc/.cargo/git/checkouts/libsignal-d53efd7b5b78aacd/f9f0a47/rust/protocol" }
 tokio = { version = "1", features = ["full"] }
 serde_json = "1"
 base64 = "0.22"

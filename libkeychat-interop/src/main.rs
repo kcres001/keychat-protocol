@@ -108,8 +108,8 @@ async fn main() -> anyhow::Result<()> {
 
     let mut alice_signal = alice_fr_state.signal_participant;
     let bob_sig_id = bob_accepted.signal_participant.identity_public_key_hex();
-    let bob_sig_addr = libsignal_protocol::ProtocolAddress::new(
-        bob_sig_id.clone(), libsignal_protocol::DeviceId::from(1),
+    let bob_sig_addr = impl_a::ProtocolAddress::new(
+        bob_sig_id.clone(), impl_a::DeviceId::new(1).unwrap(),
     );
 
     let approve_ct = base64::engine::general_purpose::STANDARD.decode(&approve_ev.content)?;
@@ -131,8 +131,8 @@ async fn main() -> anyhow::Result<()> {
     bob_client.subscribe(vec![f1], None).await?;
     let ev1_rcv = wait_for_gift_wrap(&bob_client, TIMEOUT).await.expect("❌ Bob no msg");
 
-    let alice_sig_addr = libsignal_protocol::ProtocolAddress::new(
-        alice_signal.identity_public_key_hex(), libsignal_protocol::DeviceId::from(1),
+    let alice_sig_addr = impl_a::ProtocolAddress::new(
+        alice_signal.identity_public_key_hex(), impl_a::DeviceId::new(1).unwrap(),
     );
     let mut bob_signal = bob_accepted.signal_participant;
     let (bob_rcvd, _) = impl_b::chat::receive_encrypted_message(&mut bob_signal, &alice_sig_addr, &ev1_rcv)?;
