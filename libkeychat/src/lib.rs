@@ -134,6 +134,8 @@ pub use signal_session::{
     SignalPreKeyMaterial,
 };
 pub use signal_store::{CapturingSessionStore, SignalProtocolStoreBundle};
+// Re-export libsignal types that clients need
+pub use libsignal_protocol::{DeviceId, PreKeySignalMessage, ProtocolAddress};
 pub use storage::{
     DerivedAddressSerialized, PeerAddressStateSerialized, PeerMapping, SecureStorage,
 };

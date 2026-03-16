@@ -265,8 +265,8 @@ async fn group_send_receive_e2e() {
     let alice_id = alice.identity_public_key_hex();
     let bob_id = bob.identity_public_key_hex();
 
-    let bob_addr = ProtocolAddress::new(bob_id.clone(), DeviceId::from(1u32));
-    let alice_addr = ProtocolAddress::new(alice_id.clone(), DeviceId::from(1u32));
+    let bob_addr = ProtocolAddress::new(bob_id.clone(), DeviceId::new(1).unwrap());
+    let alice_addr = ProtocolAddress::new(alice_id.clone(), DeviceId::new(1).unwrap());
 
     // Establish bidirectional session
     let bob_bundle = bob.prekey_bundle().unwrap();

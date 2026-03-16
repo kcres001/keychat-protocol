@@ -2,6 +2,12 @@
 //!
 //! Wraps `libsignal-protocol` into a higher-level `SignalParticipant` that manages
 //! key material, session state, and encrypt/decrypt operations.
+//!
+//! Ratchet key extraction: Official libsignal v0.88.3 does NOT return ratchet
+//! keys from encrypt/decrypt. We extract them by:
+//! 1. Snapshotting the session state before each operation
+//! 2. Parsing the updated SessionRecord protobuf after the operation
+//! 3. Detecting DH ratchet steps by comparing old vs new sender chain keys
 
 use std::collections::BTreeMap;
 use std::time::SystemTime;
@@ -12,10 +18,8 @@ use libsignal_protocol::{
     CiphertextMessage, DeviceId, GenericSignedPreKey, IdentityKeyPair, KeyPair, KyberPreKeyId,
     KyberPreKeyRecord, KyberPreKeyStore, PreKeyBundle, PreKeyId, PreKeyRecord,
     PreKeySignalMessage, PreKeyStore, ProtocolAddress, SignalMessage, SignedPreKeyId,
-    SignedPreKeyRecord, SignedPreKeyStore,
+    SignedPreKeyRecord, SignedPreKeyStore, Timestamp,
 };
-use rand::rngs::OsRng;
-use rand::Rng;
 
 use crate::error::{KeychatError, Result};
 use crate::signal_store::SignalProtocolStoreBundle;
@@ -60,14 +64,12 @@ impl SignalPreKeyMaterial {
             self.signed_prekey_id,
             self.signed_prekey.public_key()?,
             self.signed_prekey.signature()?,
-            *self.identity_key_pair.identity_key(),
-        )?;
-        // Attach Kyber prekey for PQXDH
-        Ok(bundle.with_kyber_pre_key(
             self.kyber_prekey_id,
             self.kyber_prekey.public_key()?,
             self.kyber_prekey.signature()?,
-        ))
+            *self.identity_key_pair.identity_key(),
+        )?;
+        Ok(bundle)
     }
 }
 
@@ -75,15 +77,16 @@ impl SignalPreKeyMaterial {
 ///
 /// Includes Kyber1024 prekey for PQXDH key agreement.
 pub fn generate_prekey_material() -> Result<SignalPreKeyMaterial> {
-    let mut rng = OsRng;
+    let mut rng = ::rand::rng();
     let identity_key_pair = IdentityKeyPair::generate(&mut rng);
-    let registration_id = rand::thread_rng().gen_range(1..=u32::MAX);
+    let registration_id: u32 = ::rand::random_range(1..=u32::MAX);
 
     let signed_prekey_id = SignedPreKeyId::from(1);
     let signed_prekey_key_pair = KeyPair::generate(&mut rng);
     let signed_prekey_signature = identity_key_pair
         .private_key()
-        .calculate_signature(&signed_prekey_key_pair.public_key.serialize(), &mut rng)?;
+        .calculate_signature(&signed_prekey_key_pair.public_key.serialize(), &mut rng)
+        .map_err(|e| KeychatError::Signal(format!("calculate_signature failed: {e}")))?;
     let signed_prekey = <SignedPreKeyRecord as GenericSignedPreKey>::new(
         signed_prekey_id,
         timestamp_now(),
@@ -115,6 +118,11 @@ pub fn generate_prekey_material() -> Result<SignalPreKeyMaterial> {
     })
 }
 
+/// Helper: create DeviceId from u32 (must be 1..=127).
+pub(crate) fn make_device_id(id: u32) -> DeviceId {
+    DeviceId::new(id as u8).expect("device ID must be 1..=127")
+}
+
 /// A Signal Protocol participant with session management.
 #[derive(Clone)]
 pub struct SignalParticipant {
@@ -134,17 +142,18 @@ impl std::fmt::Debug for SignalParticipant {
 }
 
 impl SignalParticipant {
-    pub fn new(name: impl Into<String>, device_id: u32) -> Result<Self> {
+    pub fn new(name: impl Into<String>, device_id_val: u32) -> Result<Self> {
         let keys = generate_prekey_material()?;
-        Self::from_prekey_material(name.into(), device_id, keys)
+        Self::from_prekey_material(name.into(), device_id_val, keys)
     }
 
     pub fn from_prekey_material(
         name: String,
-        device_id: u32,
+        device_id_val: u32,
         keys: SignalPreKeyMaterial,
     ) -> Result<Self> {
-        let mut store = SignalProtocolStoreBundle::new(keys.identity_key_pair, keys.registration_id);
+        let mut store =
+            SignalProtocolStoreBundle::new(keys.identity_key_pair, keys.registration_id);
 
         block_on(async {
             store
@@ -166,7 +175,7 @@ impl SignalParticipant {
         })?;
 
         Ok(Self {
-            address: ProtocolAddress::new(name, DeviceId::from(device_id)),
+            address: ProtocolAddress::new(name, make_device_id(device_id_val)),
             store,
             keys,
             tracked_peers: BTreeMap::new(),
@@ -192,13 +201,17 @@ impl SignalParticipant {
             &mut self.store.identity_store,
             bundle,
             SystemTime::now(),
-            &mut OsRng,
+            &mut ::rand::rng(),
         ))?;
         self.track_peer(remote);
         Ok(())
     }
 
-    pub fn encrypt_bytes(&mut self, remote: &ProtocolAddress, plaintext: &[u8]) -> Result<Vec<u8>> {
+    pub fn encrypt_bytes(
+        &mut self,
+        remote: &ProtocolAddress,
+        plaintext: &[u8],
+    ) -> Result<Vec<u8>> {
         Ok(self.encrypt(remote, plaintext)?.bytes)
     }
 
@@ -207,25 +220,46 @@ impl SignalParticipant {
         remote: &ProtocolAddress,
         plaintext: &[u8],
     ) -> Result<SignalCiphertext> {
-        let (message, sender_address, message_key_hash, prior_alice_addrs) =
-            block_on(message_encrypt(
-                plaintext,
-                remote,
-                &mut self.store.session_store,
-                &mut self.store.identity_store,
-                SystemTime::now(),
-                None,
-            ))?;
+        // Snapshot session state BEFORE encrypt so store_session can detect changes
+        self.store.session_store.snapshot_session(remote);
+
+        let message = block_on(message_encrypt(
+            plaintext,
+            remote,
+            &mut self.store.session_store,
+            &mut self.store.identity_store,
+            SystemTime::now(),
+            &mut ::rand::rng(),
+        ))?;
+
+        let ciphertext_bytes = message.serialize().to_vec();
+
+        // Extract ratchet info from my_receiver_addresses (set by store_session)
+        let sender_address = self
+            .store
+            .session_store
+            .my_receiver_addresses
+            .lock()
+            .unwrap()
+            .get(remote.name())
+            .cloned();
+
+        let message_key_hash = compute_message_hash(&ciphertext_bytes);
+
         self.track_peer(remote);
         Ok(SignalCiphertext {
-            bytes: message.serialize().to_vec(),
+            bytes: ciphertext_bytes,
             sender_address,
             message_key_hash,
-            prior_alice_addrs,
+            prior_alice_addrs: None,
         })
     }
 
-    pub fn decrypt_bytes(&mut self, remote: &ProtocolAddress, ciphertext: &[u8]) -> Result<Vec<u8>> {
+    pub fn decrypt_bytes(
+        &mut self,
+        remote: &ProtocolAddress,
+        ciphertext: &[u8],
+    ) -> Result<Vec<u8>> {
         Ok(self.decrypt(remote, ciphertext)?.plaintext)
     }
 
@@ -234,20 +268,26 @@ impl SignalParticipant {
         remote: &ProtocolAddress,
         ciphertext: &[u8],
     ) -> Result<SignalDecryptResult> {
+        // Snapshot session state BEFORE decrypt so store_session can detect ratchet steps
+        self.store.session_store.snapshot_session(remote);
+
+        let message_key_hash = compute_message_hash(ciphertext);
+
         if let Ok(prekey) = PreKeySignalMessage::try_from(ciphertext) {
-            let (plaintext, message_key_hash, alice_addrs) = block_on(message_decrypt_prekey(
+            let plaintext = block_on(message_decrypt_prekey(
                 &prekey,
                 remote,
                 &mut self.store.session_store,
                 &mut self.store.identity_store,
-                &mut self.store.ratchet_key_store,
                 &mut self.store.pre_key_store,
                 &self.store.signed_pre_key_store,
                 &mut self.store.kyber_pre_key_store,
-                0,
-                &mut OsRng,
+                &mut ::rand::rng(),
             ))?;
+
             self.track_peer(remote);
+            let alice_addrs = self.store.session_store.take_alice_addrs(remote.name());
+
             return Ok(SignalDecryptResult {
                 plaintext,
                 message_key_hash,
@@ -257,16 +297,17 @@ impl SignalParticipant {
         }
 
         if let Ok(signal) = SignalMessage::try_from(ciphertext) {
-            let (plaintext, message_key_hash, alice_addrs) = block_on(message_decrypt_signal(
+            let plaintext = block_on(message_decrypt_signal(
                 &signal,
                 remote,
                 &mut self.store.session_store,
                 &mut self.store.identity_store,
-                &mut self.store.ratchet_key_store,
-                0,
-                &mut OsRng,
+                &mut ::rand::rng(),
             ))?;
+
             self.track_peer(remote);
+            let alice_addrs = self.store.session_store.take_alice_addrs(remote.name());
+
             return Ok(SignalDecryptResult {
                 plaintext,
                 message_key_hash,
@@ -311,7 +352,9 @@ impl SignalParticipant {
     }
 
     pub fn signed_prekey_public_hex(&self) -> Result<String> {
-        Ok(hex::encode(self.keys.signed_prekey.public_key()?.serialize()))
+        Ok(hex::encode(
+            self.keys.signed_prekey.public_key()?.serialize(),
+        ))
     }
 
     pub fn signed_prekey_signature_hex(&self) -> Result<String> {
@@ -339,7 +382,12 @@ impl SignalParticipant {
     }
 
     pub fn bob_addresses(&self) -> BTreeMap<String, String> {
-        self.store.session_store.bob_addresses.lock().unwrap().clone()
+        self.store
+            .session_store
+            .bob_addresses
+            .lock()
+            .unwrap()
+            .clone()
     }
 
     fn track_peer(&mut self, remote: &ProtocolAddress) {
@@ -362,6 +410,12 @@ impl SignalParticipant {
             None => Ok(None),
         }
     }
+}
+
+/// Compute a deterministic hash from message bytes for deduplication.
+fn compute_message_hash(data: &[u8]) -> String {
+    use sha2::Digest;
+    hex::encode(sha2::Sha256::digest(data))
 }
 
 /// Derive a Nostr secp256k1 address from a Signal ratchet key pair (spec section 9.1).
@@ -399,11 +453,12 @@ pub fn derive_nostr_address_from_ratchet(seed_key: &str) -> Result<String> {
     Ok(hex::encode(x_public_key))
 }
 
-fn timestamp_now() -> u64 {
-    SystemTime::now()
+fn timestamp_now() -> Timestamp {
+    let millis = SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
-        .as_millis() as u64
+        .as_millis() as u64;
+    Timestamp::from_epoch_millis(millis)
 }
 
 #[cfg(test)]
@@ -424,14 +479,17 @@ mod tests {
         let mut bob = SignalParticipant::new("bob", 1).unwrap();
 
         let bob_bundle = bob.prekey_bundle().unwrap();
-        let bob_addr = ProtocolAddress::new(bob.identity_public_key_hex(), DeviceId::from(1u32));
-        alice.process_prekey_bundle(&bob_addr, &bob_bundle).unwrap();
+        let bob_addr = ProtocolAddress::new(bob.identity_public_key_hex(), make_device_id(1));
+        alice
+            .process_prekey_bundle(&bob_addr, &bob_bundle)
+            .unwrap();
 
         let plaintext = b"Hello, Bob!";
         let ciphertext = alice.encrypt_bytes(&bob_addr, plaintext).unwrap();
         assert!(SignalParticipant::is_prekey_message(&ciphertext));
 
-        let alice_addr = ProtocolAddress::new(alice.identity_public_key_hex(), DeviceId::from(1u32));
+        let alice_addr =
+            ProtocolAddress::new(alice.identity_public_key_hex(), make_device_id(1));
         let decrypted = bob.decrypt_bytes(&alice_addr, &ciphertext).unwrap();
         assert_eq!(decrypted, plaintext);
     }
@@ -442,10 +500,13 @@ mod tests {
         let mut bob = SignalParticipant::new("bob", 1).unwrap();
 
         let bob_bundle = bob.prekey_bundle().unwrap();
-        let bob_addr = ProtocolAddress::new(bob.identity_public_key_hex(), DeviceId::from(1u32));
-        let alice_addr = ProtocolAddress::new(alice.identity_public_key_hex(), DeviceId::from(1u32));
+        let bob_addr = ProtocolAddress::new(bob.identity_public_key_hex(), make_device_id(1));
+        let alice_addr =
+            ProtocolAddress::new(alice.identity_public_key_hex(), make_device_id(1));
 
-        alice.process_prekey_bundle(&bob_addr, &bob_bundle).unwrap();
+        alice
+            .process_prekey_bundle(&bob_addr, &bob_bundle)
+            .unwrap();
 
         let ct1 = alice.encrypt_bytes(&bob_addr, b"Hello Bob!").unwrap();
         assert!(SignalParticipant::is_prekey_message(&ct1));
@@ -469,11 +530,14 @@ mod tests {
         let mut charlie = SignalParticipant::new("charlie", 1).unwrap();
 
         let bob_bundle = bob.prekey_bundle().unwrap();
-        let bob_addr = ProtocolAddress::new(bob.identity_public_key_hex(), DeviceId::from(1u32));
-        alice.process_prekey_bundle(&bob_addr, &bob_bundle).unwrap();
+        let bob_addr = ProtocolAddress::new(bob.identity_public_key_hex(), make_device_id(1));
+        alice
+            .process_prekey_bundle(&bob_addr, &bob_bundle)
+            .unwrap();
 
         let ciphertext = alice.encrypt_bytes(&bob_addr, b"Secret message").unwrap();
-        let alice_addr = ProtocolAddress::new(alice.identity_public_key_hex(), DeviceId::from(1u32));
+        let alice_addr =
+            ProtocolAddress::new(alice.identity_public_key_hex(), make_device_id(1));
         let result = charlie.decrypt_bytes(&alice_addr, &ciphertext);
         assert!(result.is_err());
     }
@@ -484,10 +548,13 @@ mod tests {
         let mut bob = SignalParticipant::new("bob", 1).unwrap();
 
         let bob_bundle = bob.prekey_bundle().unwrap();
-        let bob_addr = ProtocolAddress::new(bob.identity_public_key_hex(), DeviceId::from(1u32));
-        let alice_addr = ProtocolAddress::new(alice.identity_public_key_hex(), DeviceId::from(1u32));
+        let bob_addr = ProtocolAddress::new(bob.identity_public_key_hex(), make_device_id(1));
+        let alice_addr =
+            ProtocolAddress::new(alice.identity_public_key_hex(), make_device_id(1));
 
-        alice.process_prekey_bundle(&bob_addr, &bob_bundle).unwrap();
+        alice
+            .process_prekey_bundle(&bob_addr, &bob_bundle)
+            .unwrap();
 
         let ct1 = alice.encrypt_bytes(&bob_addr, b"first").unwrap();
         assert!(SignalParticipant::is_prekey_message(&ct1));
@@ -503,8 +570,10 @@ mod tests {
         let bob = SignalParticipant::new("bob", 1).unwrap();
 
         let bob_bundle = bob.prekey_bundle().unwrap();
-        let bob_addr = ProtocolAddress::new(bob.identity_public_key_hex(), DeviceId::from(1u32));
-        alice.process_prekey_bundle(&bob_addr, &bob_bundle).unwrap();
+        let bob_addr = ProtocolAddress::new(bob.identity_public_key_hex(), make_device_id(1));
+        alice
+            .process_prekey_bundle(&bob_addr, &bob_bundle)
+            .unwrap();
 
         let ct = alice.encrypt_bytes(&bob_addr, b"hello").unwrap();
         let sender_id = SignalParticipant::extract_prekey_sender_identity(&ct);

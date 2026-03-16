@@ -404,9 +404,9 @@ mod tests {
 
         let bob_bundle = bob.prekey_bundle().unwrap();
         let bob_addr =
-            ProtocolAddress::new(bob.identity_public_key_hex(), DeviceId::from(1u32));
+            ProtocolAddress::new(bob.identity_public_key_hex(), DeviceId::new(1).unwrap());
         let alice_addr =
-            ProtocolAddress::new(alice.identity_public_key_hex(), DeviceId::from(1u32));
+            ProtocolAddress::new(alice.identity_public_key_hex(), DeviceId::new(1).unwrap());
 
         alice.process_prekey_bundle(&bob_addr, &bob_bundle).unwrap();
 
@@ -479,9 +479,9 @@ mod tests {
 
         let bob_bundle = bob.prekey_bundle().unwrap();
         let bob_addr =
-            ProtocolAddress::new(bob.identity_public_key_hex(), DeviceId::from(1u32));
+            ProtocolAddress::new(bob.identity_public_key_hex(), DeviceId::new(1).unwrap());
         let alice_addr =
-            ProtocolAddress::new(alice.identity_public_key_hex(), DeviceId::from(1u32));
+            ProtocolAddress::new(alice.identity_public_key_hex(), DeviceId::new(1).unwrap());
 
         // Alice processes Bob's bundle (but Bob hasn't seen Alice yet)
         alice.process_prekey_bundle(&bob_addr, &bob_bundle).unwrap();
@@ -912,7 +912,7 @@ mod tests {
 
         let bob_signal_id = accepted.signal_participant.identity_public_key_hex();
         let bob_signal_addr =
-            ProtocolAddress::new(bob_signal_id.clone(), DeviceId::from(1u32));
+            ProtocolAddress::new(bob_signal_id.clone(), DeviceId::new(1).unwrap());
 
         let mut alice_signal = alice_state.signal_participant;
         let decrypt_result = alice_signal
@@ -950,7 +950,7 @@ mod tests {
         // 6. Bob receives, decrypts, parses as KCMessage text
         let alice_signal_addr = ProtocolAddress::new(
             alice_signal.identity_public_key_hex(),
-            DeviceId::from(1u32),
+            DeviceId::new(1).unwrap(),
         );
         let mut bob_signal = accepted.signal_participant;
         let (bob_received, bob_meta) =

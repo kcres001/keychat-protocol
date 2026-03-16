@@ -245,7 +245,7 @@ pub async fn send_group_message(
     for member in group.other_members() {
         let remote_address = ProtocolAddress::new(
             member.signal_id.clone(),
-            DeviceId::from(1u32),
+            DeviceId::new(1).unwrap(),
         );
 
         // Resolve sending address via AddressManager
@@ -370,7 +370,7 @@ pub async fn send_group_invite(
     let message = build_group_invite_message(group);
     let remote_address = ProtocolAddress::new(
         invitee_signal_id.to_string(),
-        DeviceId::from(1u32),
+        DeviceId::new(1).unwrap(),
     );
     let to_address = address_manager.resolve_send_address(invitee_signal_id)?;
     let json = message.to_json()?;
@@ -539,7 +539,7 @@ async fn send_to_all_members(
     for member in group.other_members() {
         let remote_address = ProtocolAddress::new(
             member.signal_id.clone(),
-            DeviceId::from(1u32),
+            DeviceId::new(1).unwrap(),
         );
         let to_address = address_manager.resolve_send_address(&member.signal_id)?;
         let ct = signal.encrypt(&remote_address, json.as_bytes())?;
@@ -569,8 +569,8 @@ async fn build_mode1_event(ciphertext: &[u8], to_address: &str) -> Result<Event>
 
 /// Generate a UUID v4 string.
 fn uuid_v4() -> String {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
+    use ::rand::Rng;
+    let mut rng = ::rand::rng();
     let mut bytes = [0u8; 16];
     rng.fill(&mut bytes);
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
@@ -619,9 +619,9 @@ mod tests {
         let bob_id = bob.identity_public_key_hex();
         let charlie_id = charlie.identity_public_key_hex();
 
-        let bob_addr = ProtocolAddress::new(bob_id.clone(), DeviceId::from(1u32));
-        let alice_addr = ProtocolAddress::new(alice_id.clone(), DeviceId::from(1u32));
-        let charlie_addr = ProtocolAddress::new(charlie_id.clone(), DeviceId::from(1u32));
+        let bob_addr = ProtocolAddress::new(bob_id.clone(), DeviceId::new(1).unwrap());
+        let alice_addr = ProtocolAddress::new(alice_id.clone(), DeviceId::new(1).unwrap());
+        let charlie_addr = ProtocolAddress::new(charlie_id.clone(), DeviceId::new(1).unwrap());
 
         // Alice ↔ Bob session
         let bob_bundle = bob.prekey_bundle().unwrap();
@@ -936,7 +936,7 @@ mod tests {
         // Alice creates a new member "Dave" and invites them
         let mut dave = SignalParticipant::new("dave", 1).unwrap();
         let dave_id = dave.identity_public_key_hex();
-        let dave_addr = ProtocolAddress::new(dave_id.clone(), DeviceId::from(1u32));
+        let dave_addr = ProtocolAddress::new(dave_id.clone(), DeviceId::new(1).unwrap());
 
         // Establish Alice↔Dave session
         let dave_bundle = dave.prekey_bundle().unwrap();
@@ -945,12 +945,12 @@ mod tests {
             .unwrap();
         let ct = alice.encrypt_bytes(&dave_addr, b"init-ad").unwrap();
         dave.decrypt_bytes(
-            &ProtocolAddress::new(alice.identity_public_key_hex(), DeviceId::from(1u32)),
+            &ProtocolAddress::new(alice.identity_public_key_hex(), DeviceId::new(1).unwrap()),
             &ct,
         )
         .unwrap();
         let ct2 = dave.encrypt(
-            &ProtocolAddress::new(alice.identity_public_key_hex(), DeviceId::from(1u32)),
+            &ProtocolAddress::new(alice.identity_public_key_hex(), DeviceId::new(1).unwrap()),
             b"ack-ad",
         )
         .unwrap();
@@ -972,7 +972,7 @@ mod tests {
             .decode(&invite_event.content)
             .unwrap();
         let alice_addr_for_dave =
-            ProtocolAddress::new(alice.identity_public_key_hex(), DeviceId::from(1u32));
+            ProtocolAddress::new(alice.identity_public_key_hex(), DeviceId::new(1).unwrap());
         let plaintext = dave.decrypt_bytes(&alice_addr_for_dave, &ciphertext).unwrap();
         let plaintext_str = String::from_utf8(plaintext).unwrap();
         let invite_msg = KCMessage::try_parse(&plaintext_str).unwrap();

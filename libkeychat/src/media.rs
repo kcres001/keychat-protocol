@@ -66,8 +66,8 @@ fn pkcs7_unpad(data: &[u8]) -> Result<Vec<u8>> {
 /// Generates a random key and IV, applies PKCS7 padding, encrypts with
 /// AES-256-CTR, and computes a SHA-256 hash of the ciphertext.
 pub fn encrypt_file(plaintext: &[u8]) -> EncryptedFile {
-    use rand::RngCore;
-    let mut rng = rand::thread_rng();
+    use ::rand::RngCore;
+    let mut rng = ::rand::rng();
 
     let mut key = [0u8; 32];
     let mut iv = [0u8; 16];

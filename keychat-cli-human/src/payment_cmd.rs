@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use libkeychat::{send_encrypted_message, KCMessage};
-use libsignal_protocol::{DeviceId, ProtocolAddress};
+use libkeychat::{DeviceId, ProtocolAddress};
 use nostr::prelude::*;
 
 use crate::state::{AppState, ChatTarget};
@@ -34,7 +34,7 @@ async fn send_to_active(state: &AppState, msg: &KCMessage, confirm_text: &str) -
     let peer = peers.get_mut(&peer_npub)
         .ok_or_else(|| anyhow::anyhow!("Peer not found"))?;
 
-    let addr = ProtocolAddress::new(peer.signal_id.clone(), DeviceId::from(1u32));
+    let addr = ProtocolAddress::new(peer.signal_id.clone(), DeviceId::new(1).unwrap());
     let recv_keys = Keys::generate();
     let event = send_encrypted_message(
         &mut peer.signal, &addr, msg, &recv_keys.public_key().to_hex(),

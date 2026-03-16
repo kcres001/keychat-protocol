@@ -205,11 +205,11 @@ mod tests {
         let bob_bundle = bob_signal.prekey_bundle().unwrap();
         let bob_addr = ProtocolAddress::new(
             bob_signal.identity_public_key_hex(),
-            DeviceId::from(1u32),
+            DeviceId::new(1).unwrap(),
         );
         let alice_addr = ProtocolAddress::new(
             alice_signal.identity_public_key_hex(),
-            DeviceId::from(1u32),
+            DeviceId::new(1).unwrap(),
         );
 
         alice_signal

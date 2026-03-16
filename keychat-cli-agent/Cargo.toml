@@ -15,7 +15,6 @@ serde_json = "1"
 base64 = "0.22"
 hex = "0.4"
 anyhow = "1"
-libsignal-protocol = { path = "/Users/kc/.cargo/git/checkouts/libsignal-d53efd7b5b78aacd/f9f0a47/rust/protocol" }
 dirs = "6"
 rustyline = "14"
 colored = "2"

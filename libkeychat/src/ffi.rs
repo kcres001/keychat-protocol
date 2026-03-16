@@ -333,7 +333,7 @@ pub unsafe extern "C" fn keychat_send_text(
         Err(_) => return err,
     };
 
-    let addr = ProtocolAddress::new(peer.signal_id.clone(), DeviceId::from(1u32));
+    let addr = ProtocolAddress::new(peer.signal_id.clone(), DeviceId::new(1).unwrap());
     let ct = match peer.signal.encrypt(&addr, json.as_bytes()) {
         Ok(c) => c,
         Err(_) => return err,
@@ -397,7 +397,7 @@ pub unsafe extern "C" fn keychat_receive_event(
 
     // Try each peer
     for peer in &mut ctx.peers {
-        let addr = ProtocolAddress::new(peer.signal_id.clone(), DeviceId::from(1u32));
+        let addr = ProtocolAddress::new(peer.signal_id.clone(), DeviceId::new(1).unwrap());
         if let Ok(result) = peer.signal.decrypt(&addr, &ciphertext) {
             let update = peer.address_manager.on_decrypt(
                 &peer.signal_id,
@@ -459,7 +459,7 @@ fn libkeychat_try_pending_response(ctx: &mut KeychatContext, ciphertext: &[u8]) 
     };
 
     let sender_identity = hex::encode(prekey_msg.identity_key().serialize());
-    let remote_addr = ProtocolAddress::new(sender_identity.clone(), DeviceId::from(1u32));
+    let remote_addr = ProtocolAddress::new(sender_identity.clone(), DeviceId::new(1).unwrap());
 
     for i in 0..ctx.pending_frs.len() {
         if let Ok(result) = ctx.pending_frs[i].signal.decrypt(&remote_addr, ciphertext) {

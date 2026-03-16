@@ -337,9 +337,9 @@ mod tests {
 
         let bob_bundle = bob.prekey_bundle().unwrap();
         let bob_addr =
-            ProtocolAddress::new(bob.identity_public_key_hex(), DeviceId::from(1u32));
+            ProtocolAddress::new(bob.identity_public_key_hex(), DeviceId::new(1).unwrap());
         let alice_addr =
-            ProtocolAddress::new(alice.identity_public_key_hex(), DeviceId::from(1u32));
+            ProtocolAddress::new(alice.identity_public_key_hex(), DeviceId::new(1).unwrap());
 
         alice
             .process_prekey_bundle(&bob_addr, &bob_bundle)
@@ -738,8 +738,8 @@ mod tests {
             let mut c = SignalParticipant::new("carol", 1).unwrap();
             let mut d = SignalParticipant::new("dave", 1).unwrap();
             let d_bundle = d.prekey_bundle().unwrap();
-            let d_addr = ProtocolAddress::new(d.identity_public_key_hex(), DeviceId::from(1u32));
-            let c_addr = ProtocolAddress::new(c.identity_public_key_hex(), DeviceId::from(1u32));
+            let d_addr = ProtocolAddress::new(d.identity_public_key_hex(), DeviceId::new(1).unwrap());
+            let c_addr = ProtocolAddress::new(c.identity_public_key_hex(), DeviceId::new(1).unwrap());
             c.process_prekey_bundle(&d_addr, &d_bundle).unwrap();
             (c, d, c_addr, d_addr)
         };
@@ -928,8 +928,8 @@ mod tests {
             let mut a = SignalParticipant::new("alice2", 1).unwrap();
             let mut c = SignalParticipant::new("charlie", 1).unwrap();
             let c_bundle = c.prekey_bundle().unwrap();
-            let c_addr = ProtocolAddress::new(c.identity_public_key_hex(), DeviceId::from(1u32));
-            let a_addr = ProtocolAddress::new(a.identity_public_key_hex(), DeviceId::from(1u32));
+            let c_addr = ProtocolAddress::new(c.identity_public_key_hex(), DeviceId::new(1).unwrap());
+            let a_addr = ProtocolAddress::new(a.identity_public_key_hex(), DeviceId::new(1).unwrap());
             a.process_prekey_bundle(&c_addr, &c_bundle).unwrap();
             (a, c, a_addr, c_addr)
         };

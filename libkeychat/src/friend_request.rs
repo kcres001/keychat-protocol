@@ -198,9 +198,23 @@ pub async fn accept_friend_request(
         libsignal_protocol::PublicKey::deserialize(&remote_one_time_prekey_bytes)
             .map_err(|e| KeychatError::Signal(format!("invalid one-time prekey: {e}")))?;
 
-    let mut prekey_bundle = PreKeyBundle::new(
+    // Kyber prekey is mandatory for PQXDH in libsignal v0.88.3
+    if payload.signal_kyber_prekey.is_empty() {
+        return Err(KeychatError::Signal(
+            "Kyber prekey is required for PQXDH session establishment".into(),
+        ));
+    }
+
+    let kyber_prekey_bytes = hex::decode(&payload.signal_kyber_prekey)
+        .map_err(|e| KeychatError::Signal(format!("hex decode kyber prekey: {e}")))?;
+    let kyber_public_key = kem::PublicKey::deserialize(&kyber_prekey_bytes)
+        .map_err(|e| KeychatError::Signal(format!("invalid kyber prekey: {e}")))?;
+    let kyber_sig = hex::decode(&payload.signal_kyber_prekey_signature)
+        .map_err(|e| KeychatError::Signal(format!("hex decode kyber sig: {e}")))?;
+
+    let prekey_bundle = PreKeyBundle::new(
         1,
-        DeviceId::from(1u32),
+        DeviceId::new(1).unwrap(),
         Some((
             libsignal_protocol::PreKeyId::from(payload.signal_one_time_prekey_id),
             remote_one_time_prekey,
@@ -208,29 +222,17 @@ pub async fn accept_friend_request(
         libsignal_protocol::SignedPreKeyId::from(payload.signal_signed_prekey_id),
         remote_signed_prekey,
         remote_signed_prekey_sig,
+        KyberPreKeyId::from(payload.signal_kyber_prekey_id),
+        kyber_public_key,
+        kyber_sig,
         remote_identity_key,
     )
     .map_err(|e| KeychatError::Signal(format!("failed to build prekey bundle: {e}")))?;
 
-    // Attach Kyber prekey for PQXDH if present in the friend request
-    if !payload.signal_kyber_prekey.is_empty() {
-        let kyber_prekey_bytes = hex::decode(&payload.signal_kyber_prekey)
-            .map_err(|e| KeychatError::Signal(format!("hex decode kyber prekey: {e}")))?;
-        let kyber_public_key = kem::PublicKey::deserialize(&kyber_prekey_bytes)
-            .map_err(|e| KeychatError::Signal(format!("invalid kyber prekey: {e}")))?;
-        let kyber_sig = hex::decode(&payload.signal_kyber_prekey_signature)
-            .map_err(|e| KeychatError::Signal(format!("hex decode kyber sig: {e}")))?;
-        prekey_bundle = prekey_bundle.with_kyber_pre_key(
-            KyberPreKeyId::from(payload.signal_kyber_prekey_id),
-            kyber_public_key,
-            kyber_sig,
-        );
-    }
-
     // Process prekey bundle (PQXDH handshake)
     let remote_address = ProtocolAddress::new(
         payload.signal_identity_key.clone(),
-        DeviceId::from(1u32),
+        DeviceId::new(1).unwrap(),
     );
     my_signal.process_prekey_bundle(&remote_address, &prekey_bundle)?;
 
@@ -327,8 +329,8 @@ async fn build_mode1_event(ciphertext: &[u8], to_address: &str) -> Result<Event>
 }
 
 fn uuid_v4() -> String {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
+    use ::rand::Rng;
+    let mut rng = ::rand::rng();
     let mut bytes = [0u8; 16];
     rng.fill(&mut bytes);
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
@@ -382,7 +384,7 @@ mod tests {
             .decode(&accepted.event.content)
             .unwrap();
         let bob_signal_id = accepted.signal_participant.identity_public_key_hex();
-        let bob_signal_addr = ProtocolAddress::new(bob_signal_id.clone(), DeviceId::from(1u32));
+        let bob_signal_addr = ProtocolAddress::new(bob_signal_id.clone(), DeviceId::new(1).unwrap());
 
         let mut alice_signal = alice_state.signal_participant;
         let decrypt_result = alice_signal
@@ -413,7 +415,7 @@ mod tests {
 
         let alice_signal_addr = ProtocolAddress::new(
             alice_signal.identity_public_key_hex(),
-            DeviceId::from(1u32),
+            DeviceId::new(1).unwrap(),
         );
         let mut bob_signal = accepted.signal_participant;
         let (hello_dec, _) =

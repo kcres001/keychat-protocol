@@ -63,8 +63,8 @@ pub struct KyberPrekey {
 /// - Clear bits 0, 1, 2, 255
 /// - Set bit 254
 pub fn generate_signal_identity() -> SignalIdentity {
-    use rand::RngCore;
-    let mut rng = rand::thread_rng();
+    use ::rand::RngCore;
+    let mut rng = ::rand::rng();
     let mut private_key = [0u8; 32];
     rng.fill_bytes(&mut private_key);
     // Clamp per Curve25519/X25519 convention
@@ -143,8 +143,8 @@ pub fn generate_signed_prekey(identity_private_key: &[u8; 32]) -> SignedPrekey {
 
 /// Generate a signed prekey with a specific ID.
 pub fn generate_signed_prekey_with_id(identity_private_key: &[u8; 32], id: u32) -> SignedPrekey {
-    use rand::RngCore;
-    let mut rng = rand::thread_rng();
+    use ::rand::RngCore;
+    let mut rng = ::rand::rng();
     let mut private_key = [0u8; 32];
     rng.fill_bytes(&mut private_key);
     private_key[0] &= 0xF8;
@@ -175,8 +175,8 @@ pub fn generate_one_time_prekey() -> OneTimePrekey {
 
 /// Generate a one-time prekey with a specific ID.
 pub fn generate_one_time_prekey_with_id(id: u32) -> OneTimePrekey {
-    use rand::RngCore;
-    let mut rng = rand::thread_rng();
+    use ::rand::RngCore;
+    let mut rng = ::rand::rng();
     let mut private_key = [0u8; 32];
     rng.fill_bytes(&mut private_key);
     private_key[0] &= 0xF8;

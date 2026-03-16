@@ -3,7 +3,7 @@
 use anyhow::Result;
 use libkeychat::group::*;
 use libkeychat::{send_group_message, AddressManager, KCMessage};
-use libsignal_protocol::{DeviceId, ProtocolAddress};
+use libkeychat::{DeviceId, ProtocolAddress};
 use nostr::prelude::*;
 use tls_codec::Serialize as TlsSerialize;
 
@@ -66,7 +66,7 @@ pub async fn sg_invite(state: &AppState, gid_prefix: &str, peer_npub: &str) -> R
 
     let mut peers_w = state.peers.write().await;
     let peer = peers_w.get_mut(peer_npub).unwrap();
-    let addr = ProtocolAddress::new(peer.signal_id.clone(), DeviceId::from(1u32));
+    let addr = ProtocolAddress::new(peer.signal_id.clone(), DeviceId::new(1).unwrap());
     let mut addr_mgr = AddressManager::new();
     let recv = Keys::generate();
     addr_mgr.add_peer(&peer.signal_id, Some(recv.public_key().to_hex()), None);

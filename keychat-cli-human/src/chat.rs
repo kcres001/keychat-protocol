@@ -8,7 +8,7 @@ use libkeychat::{
     accept_friend_request, receive_friend_request,
     send_friend_request, KCMessage, AddressManager, AddressUpdate,
 };
-use libsignal_protocol::{DeviceId, PreKeySignalMessage, ProtocolAddress};
+use libkeychat::{DeviceId, PreKeySignalMessage, ProtocolAddress};
 use nostr::prelude::*;
 use nostr_sdk::RelayPoolNotification;
 use serde::{Deserialize, Serialize};
@@ -60,7 +60,7 @@ pub async fn send_text_to(state: &AppState, peer_npub: &str, text: &str) -> Resu
         .ok_or_else(|| anyhow::anyhow!("Peer not found: {}", peer_npub))?;
 
     let msg = KCMessage::text(text);
-    let addr = ProtocolAddress::new(peer.signal_id.clone(), DeviceId::from(1u32));
+    let addr = ProtocolAddress::new(peer.signal_id.clone(), DeviceId::new(1).unwrap());
 
     // Encrypt with metadata to get ratchet address info
     let json = msg.to_json()?;
@@ -156,7 +156,7 @@ pub async fn send_file(state: &AppState, path: &str) -> Result<()> {
 
     let mut peers = state.peers.write().await;
     let peer = peers.get_mut(&peer_npub).ok_or_else(|| anyhow::anyhow!("Peer not found"))?;
-    let addr = ProtocolAddress::new(peer.signal_id.clone(), DeviceId::from(1u32));
+    let addr = ProtocolAddress::new(peer.signal_id.clone(), DeviceId::new(1).unwrap());
 
     let json = file_msg.to_json()?;
     let ct = peer.signal.encrypt(&addr, json.as_bytes())?;
@@ -190,7 +190,7 @@ pub async fn send_voice(state: &AppState, path: &str) -> Result<()> {
 
     let mut peers = state.peers.write().await;
     let peer = peers.get_mut(&peer_npub).ok_or_else(|| anyhow::anyhow!("Peer not found"))?;
-    let addr = ProtocolAddress::new(peer.signal_id.clone(), DeviceId::from(1u32));
+    let addr = ProtocolAddress::new(peer.signal_id.clone(), DeviceId::new(1).unwrap());
 
     let json = voice_msg.to_json()?;
     let ct = peer.signal.encrypt(&addr, json.as_bytes())?;
@@ -432,7 +432,7 @@ async fn try_decrypt_from_peers(
     for npub in &peer_keys {
         let mut peers = state.peers.write().await;
         if let Some(peer) = peers.get_mut(npub) {
-            let addr = ProtocolAddress::new(peer.signal_id.clone(), DeviceId::from(1u32));
+            let addr = ProtocolAddress::new(peer.signal_id.clone(), DeviceId::new(1).unwrap());
             if let Ok(result) = peer.signal.decrypt(&addr, &ciphertext) {
                 // Update address state after decrypt
                 let update = peer.address_manager.on_decrypt(
@@ -498,7 +498,7 @@ async fn try_pending_fr_response(
     };
 
     let sender_identity = hex::encode(prekey_msg.identity_key().serialize());
-    let remote_addr = ProtocolAddress::new(sender_identity.clone(), DeviceId::from(1u32));
+    let remote_addr = ProtocolAddress::new(sender_identity.clone(), DeviceId::new(1).unwrap());
 
     let pending_keys: Vec<String> = state.pending_outbound_frs.read().await.keys().cloned().collect();
     for first_inbox in &pending_keys {
