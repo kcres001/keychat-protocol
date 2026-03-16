@@ -5,7 +5,7 @@ use libkeychat::mls::MlsParticipant;
 use libkeychat::storage::SecureStorage;
 use libkeychat::{AddressManager, Identity, SignalParticipant};
 use nostr::prelude::*;
-use nostr_sdk::Client;
+use nostr_sdk::{Client, ClientBuilder};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -108,11 +108,14 @@ impl AppState {
         db_key: &str,
     ) -> anyhow::Result<Self> {
         let keys = identity.keys().clone();
-        let client = Client::new(keys.clone());
+        let opts = nostr_sdk::Options::new().connection_timeout(Some(std::time::Duration::from_secs(10)));
+        let client = ClientBuilder::new().signer(keys.clone()).opts(opts).build();
         for url in relay_urls {
             client.add_relay(url.as_str()).await?;
         }
-        client.connect().await;
+        // Connect in background — don't block startup
+        let connect_client = client.clone();
+        tokio::spawn(async move { connect_client.connect().await });
 
         let db_path = data_dir.join("keychat.db");
         let storage = SecureStorage::open(db_path.to_str().unwrap(), db_key)?;

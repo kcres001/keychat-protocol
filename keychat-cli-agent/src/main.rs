@@ -1,4 +1,6 @@
+mod app;
 mod chat;
+mod commands;
 mod config;
 mod daemon;
 mod groups;
@@ -12,29 +14,33 @@ mod ui;
 use clap::Parser;
 
 #[derive(Parser)]
-#[command(name = "keychat-agent", version, about = "Keychat v2 — Agent daemon with HTTP API")]
+#[command(name = "keychat", version, about = "Keychat v2 — E2E encrypted messaging over Nostr")]
 struct Cli {
     /// Path to config/data directory
     #[arg(long, default_value_t = default_data_dir())]
     data_dir: String,
 
     /// Nostr relay URL(s), comma-separated
-    #[arg(long, default_value = "wss://nos.lol")]
+    #[arg(long, default_value = "wss://relay.keychat.io,wss://relay.damus.io,wss://relay.primal.net,wss://relay.ditto.pub")]
     relay: String,
 
-    /// Database encryption key (overrides keychain value)
+    /// Database encryption key (in production, use OS keychain)
     #[arg(long)]
     db_key: Option<String>,
 
-    /// HTTP listen address
+    /// Run as daemon with HTTP API (default: interactive REPL)
+    #[arg(long)]
+    daemon: bool,
+
+    /// Daemon HTTP listen address
     #[arg(long, default_value = "127.0.0.1:7700")]
     listen: String,
 
-    /// Auto-accept incoming friend requests (first becomes owner)
-    #[arg(long, default_value_t = true)]
-    auto_accept: bool,
+    /// Auto-accept incoming friend requests (daemon mode default: true)
+    #[arg(long)]
+    auto_accept: Option<bool>,
 
-    /// Agent display name
+    /// Agent display name (shown to peers in friend requests)
     #[arg(long)]
     name: Option<String>,
 
@@ -47,7 +53,7 @@ struct Cli {
 fn default_data_dir() -> String {
     dirs::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("keychat-agent")
+        .join("keychat-cli")
         .to_string_lossy()
         .to_string()
 }
@@ -59,7 +65,9 @@ async fn main() -> anyhow::Result<()> {
 
     if cli.multi {
         multi_daemon::run(cli.data_dir, relays, cli.listen).await
+    } else if cli.daemon {
+        daemon::run(cli.data_dir, relays, cli.db_key, cli.listen, cli.auto_accept.unwrap_or(true), cli.name).await
     } else {
-        daemon::run(cli.data_dir, relays, cli.db_key, cli.listen, cli.auto_accept, cli.name).await
+        app::run(cli.data_dir, relays, cli.db_key).await
     }
 }

@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 const KEYRING_SERVICE: &str = "keychat-cli";
 
 /// Non-sensitive configuration (stored as JSON on disk).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     /// Display name for this identity.
     pub name: String,
@@ -62,8 +62,34 @@ pub fn store_mnemonic(pubkey_hex: &str, mnemonic: &str) -> Result<()> {
     Ok(())
 }
 
-/// Retrieve the mnemonic from the OS keychain.
+/// Retrieve the mnemonic from environment variable, secrets file, or OS keychain.
+///
+/// Resolution order:
+/// 1. `KEYCHAT_MNEMONIC` environment variable
+/// 2. `<data_dir>/secrets/mnemonic` file (mode 0600)
+/// 3. OS keychain (macOS Keychain / Linux keyring)
 pub fn load_mnemonic(pubkey_hex: &str) -> Result<String> {
+    // 1. Environment variable
+    if let Ok(m) = std::env::var("KEYCHAT_MNEMONIC") {
+        if !m.is_empty() {
+            return Ok(m.trim().to_string());
+        }
+    }
+
+    // 2. Secrets file (for daemon/headless use)
+    if let Ok(dir) = std::env::var("KEYCHAT_DATA_DIR") {
+        let secrets_path = std::path::Path::new(&dir).join("secrets").join("mnemonic");
+        if secrets_path.exists() {
+            let content = std::fs::read_to_string(&secrets_path)
+                .context("failed to read secrets/mnemonic file")?;
+            let trimmed = content.trim().to_string();
+            if !trimmed.is_empty() {
+                return Ok(trimmed);
+            }
+        }
+    }
+
+    // 3. OS keychain
     let entry = Entry::new(KEYRING_SERVICE, &format!("mnemonic:{}", pubkey_hex))
         .context("failed to create keychain entry for mnemonic")?;
     entry.get_password()
@@ -79,8 +105,29 @@ pub fn store_db_key(pubkey_hex: &str, db_key: &str) -> Result<()> {
     Ok(())
 }
 
-/// Retrieve the DB encryption key from the OS keychain.
+/// Retrieve the DB encryption key from environment variable, secrets file, or OS keychain.
 pub fn load_db_key(pubkey_hex: &str) -> Result<String> {
+    // 1. Environment variable
+    if let Ok(k) = std::env::var("KEYCHAT_DB_KEY") {
+        if !k.is_empty() {
+            return Ok(k.trim().to_string());
+        }
+    }
+
+    // 2. Secrets file
+    if let Ok(dir) = std::env::var("KEYCHAT_DATA_DIR") {
+        let secrets_path = std::path::Path::new(&dir).join("secrets").join("dbkey");
+        if secrets_path.exists() {
+            let content = std::fs::read_to_string(&secrets_path)
+                .context("failed to read secrets/dbkey file")?;
+            let trimmed = content.trim().to_string();
+            if !trimmed.is_empty() {
+                return Ok(trimmed);
+            }
+        }
+    }
+
+    // 3. OS keychain
     let entry = Entry::new(KEYRING_SERVICE, &format!("dbkey:{}", pubkey_hex))
         .context("failed to create keychain entry for DB key")?;
     entry.get_password()

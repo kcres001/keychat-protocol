@@ -82,14 +82,26 @@ This is the user's **permanent, sovereign identity**. It is used for:
 
 The BIP-39 mnemonic and derived private key (nsec) are the **root of all identity and encryption**. Compromise of these keys means complete loss of the identity. Implementations **MUST**:
 
-1. **Never store the mnemonic or private key in plaintext** on disk (no plaintext config files, no environment variables at rest).
-2. **Use platform-native secure storage** for mnemonic/nsec persistence:
-   - **iOS/macOS**: Keychain Services (`Security.framework`) or Secure Enclave (for keys that support it)
+1. **Never store the mnemonic or private key in plaintext config files** (e.g., JSON, YAML, TOML configs that may be version-controlled or world-readable).
+2. **Use hardware-backed secure storage when available** (RECOMMENDED):
+   - **iOS/macOS**: Keychain Services (`Security.framework`) or Secure Enclave
    - **Android**: Android Keystore system (hardware-backed when available)
-   - **Linux/Desktop**: OS keyring (e.g., `libsecret`/GNOME Keyring, KWallet) or encrypted file with a user-provided passphrase
-   - **CLI tools**: OS keychain via platform abstractions (e.g., `keyring` crate); fall back to encrypted file with passphrase prompt if no keychain is available
-3. **Zeroize private key material from memory** when no longer needed (use `zeroize` crate or equivalent).
-4. **Never display the mnemonic at creation time**. Store it directly in secure storage. Only reveal it when the user explicitly requests a backup, after identity verification (biometric, PIN, or owner authentication). Never log it, never include it in crash reports or diagnostics.
+   - **Desktop with secure hardware**: TPM-backed credential stores
+3. **Fall back to software-based secure storage when hardware is unavailable** (RECOMMENDED):
+   - **OS keyring**: `libsecret`/GNOME Keyring, KWallet, macOS Keychain (software mode)
+   - **Encrypted secrets file**: A dedicated file (e.g., `secrets/mnemonic`) with restricted permissions (mode `0600`) and, ideally, encrypted with a user-provided passphrase or a separately managed key
+   - **Environment variables**: Acceptable for ephemeral/container deployments where the variable is injected securely (e.g., Docker secrets, systemd credentials), but **NOT** for persistent storage on disk
+4. **Avoid plaintext file storage** (NOT RECOMMENDED): Storing the mnemonic in a plain unencrypted file without restricted permissions is strongly discouraged. If no better option is available, the file MUST have mode `0600` (owner-read-only) at minimum.
+5. **Zeroize private key material from memory** when no longer needed (use `zeroize` crate or equivalent).
+6. **Never display the mnemonic at creation time**. Store it directly in secure storage. Only reveal it when the user explicitly requests a backup, after identity verification (biometric, PIN, or owner authentication). Never log it, never include it in crash reports or diagnostics.
+
+> **Storage priority** (from most to least preferred):
+> 1. Hardware-backed secure element (Secure Enclave, TPM, Android Keystore)
+> 2. OS keyring / Keychain (software-backed)
+> 3. Encrypted secrets file (passphrase-protected, mode `0600`)
+> 4. Restricted-permission plaintext file (mode `0600`, last resort)
+>
+> Implementations SHOULD try higher-priority options first and fall back gracefully. For daemon/headless deployments where interactive keychain prompts are not possible, encrypted secrets files or injected environment variables are the expected path.
 
 > **Rationale**: The mnemonic is equivalent to the user's identity. Unlike Signal Protocol keys (which are ephemeral and per-peer), the Nostr keypair is permanent — its compromise cannot be remediated by session reset. It requires the same protection level as a cryptocurrency seed phrase.
 
@@ -113,17 +125,46 @@ This ensures:
 
 All Signal Protocol key material (Curve25519 identity keys, signed prekeys, one-time prekeys, Kyber KEM keys) belongs to the **encryption layer** and is **ephemeral, per-peer, and disposable**. A new Signal identity is generated for every contact; it is discarded and regenerated on session reset. Signal identities are not part of a user's identity — they are internal encryption state that the user never sees or manages.
 
+### 2.3 Owner Management (Agent Mode Only)
+
+> **Scope**: This section applies only to **agent deployments** (AI agents running as daemons). Human Keychat clients do not have an "owner" concept — the user controls their own identity directly.
+
+Each agent has an **owner** — the Nostr identity (npub) of the human administrator with management privileges over that agent. The owner can approve/reject friend requests from other peers and perform sensitive operations like mnemonic backup.
+
+**Owner assignment**:
+- On first launch, the agent has no owner. The first peer to send a friend request is automatically accepted and becomes the owner.
+- Subsequent friend requests require owner approval.
+
+**Owner transfer** (e.g., when the owner's device is lost):
+- The agent daemon exposes a `POST /set-owner` endpoint bound to `127.0.0.1` only — not accessible from the network.
+- This endpoint accepts a new owner pubkey (npub or hex) or `null` to clear the owner (next friend request becomes owner).
+- **Authorization model**: The `/set-owner` API has no authentication at the HTTP level — security relies on localhost binding. When an AI agent framework (e.g., OpenClaw) manages the daemon, owner changes MUST only be executed when the request originates from a verified platform owner, not from arbitrary chat messages. Chat messages (including Keychat) MUST NOT be treated as proof of ownership.
+
 ---
 
 ## 3. Transport Layer (Nostr Relays)
 
 ### 3.1 Relay Connection
 
-Connect to one or more Nostr relays via WebSocket (`wss://`). All communication uses standard Nostr relay protocol (NIP-01):
+Connect to **multiple** Nostr relays simultaneously via WebSocket (`wss://`). All communication uses standard Nostr relay protocol (NIP-01):
 
 - **Publish**: `["EVENT", <event_json>]` or `["EVENT", <event_json>, <ecash_token>]` (ecash stamp is a Keychat relay extension, not standard NIP-01)
 - **Subscribe**: `["REQ", <subscription_id>, <filter>]`
 - **Unsubscribe**: `["CLOSE", <subscription_id>]`
+
+#### Multi-Relay Broadcast
+
+Implementations **MUST** support connecting to multiple relays and **MUST** broadcast every published event to **all** connected relays simultaneously. This provides:
+
+- **Redundancy**: If one relay is down or censors events, the message still reaches the receiver via other relays.
+- **Availability**: The receiver subscribes to the same set of relays and receives the event from whichever relay delivers it first.
+- **Censorship resistance**: No single relay can block communication.
+
+Subscriptions **MUST** also be registered on all connected relays. Deduplication ensures each event is processed only once, even if received from multiple relays.
+
+A publish is considered successful if **at least one** relay accepts the event. Implementations SHOULD log relay-level failures but MUST NOT fail the send operation unless all relays reject the event.
+
+Recommended default relays: `wss://nos.lol`, `wss://relay.damus.io`. Implementations SHOULD allow user-configurable relay lists.
 
 ### 3.2 Unified Event Kind
 
@@ -647,6 +688,17 @@ Alice wants to add Bob. She only knows Bob's npub.
 
 - Alice's Nostr identity (secp256k1 keypair)
 - Bob's Nostr pubkey (hex) or npub
+
+#### Public Key Format Normalization
+
+All public API entry points that accept a Nostr public key **MUST** accept both formats:
+- **npub** (bech32, e.g., `npub1cqpv...558u`)
+- **hex** (64 chars, e.g., `c002c688...d033`)
+
+Implementations MUST normalize to hex internally. This applies to:
+- Adding contacts (friend request target)
+- Group invitations (invitee identity)
+- Any user-facing API that accepts a peer identifier
 
 ### 6.2 Step-by-Step
 

@@ -3,7 +3,7 @@
 //! Core protocol logic with proper address management (§9).
 //! Both REPL (app.rs) and daemon (daemon.rs) use these functions.
 
-use anyhow::Result;
+use anyhow::{Result, Context};
 use libkeychat::{
     accept_friend_request, receive_friend_request,
     send_friend_request, KCMessage, AddressManager, AddressUpdate,
@@ -13,6 +13,11 @@ use nostr::prelude::*;
 use nostr_sdk::RelayPoolNotification;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+/// Normalize a Nostr public key: accept both npub1... (bech32) and hex formats.
+fn normalize_pubkey(input: &str) -> Result<String> {
+    libkeychat::normalize_pubkey(input).map_err(|e| anyhow::anyhow!("{}", e))
+}
 use tokio::sync::broadcast;
 
 use crate::state::{AppState, ChatTarget, Peer, OutboundFriendRequest, PendingFriendRequest};
@@ -96,8 +101,10 @@ pub async fn send_text(state: &AppState, text: &str) -> Result<()> {
 
 /// Send a friend request.
 pub async fn add_friend(state: &AppState, peer_npub: &str) -> Result<()> {
+    // Accept both npub (bech32) and hex formats
+    let peer_hex = normalize_pubkey(peer_npub)?;
     let (event, fr_state) = send_friend_request(
-        &state.identity, peer_npub, &state.name, "keychat-cli",
+        &state.identity, &peer_hex, &state.name, "keychat-cli",
     ).await?;
     state.client.send_event(event).await?;
 

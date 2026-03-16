@@ -47,10 +47,11 @@ pub struct FriendRequestAccepted {
 /// Send a friend request to a peer (§6.2).
 pub async fn send_friend_request(
     my_identity: &Identity,
-    peer_nostr_pubkey_hex: &str,
+    peer_nostr_pubkey: &str,
     display_name: &str,
     device_id: &str,
 ) -> Result<(Event, FriendRequestState)> {
+    let peer_nostr_pubkey_hex = crate::identity::normalize_pubkey(peer_nostr_pubkey)?;
     let signal_participant = SignalParticipant::new(my_identity.pubkey_hex(), 1)?;
     let first_inbox_keys = EphemeralKeypair::generate();
     let first_inbox_hex = first_inbox_keys.pubkey_hex();
@@ -95,7 +96,7 @@ pub async fn send_friend_request(
     let kc_message = KCMessage::friend_request(request_id.clone(), payload);
     let kc_json = kc_message.to_json()?;
 
-    let peer_pubkey = PublicKey::from_hex(peer_nostr_pubkey_hex)
+    let peer_pubkey = PublicKey::from_hex(&peer_nostr_pubkey_hex)
         .map_err(|e| KeychatError::Signal(format!("invalid peer pubkey: {e}")))?;
 
     let gift_wrap_event = create_gift_wrap(my_identity.keys(), &peer_pubkey, &kc_json).await?;
@@ -104,7 +105,7 @@ pub async fn send_friend_request(
         signal_participant,
         first_inbox_keys,
         request_id,
-        peer_nostr_pubkey: peer_nostr_pubkey_hex.to_string(),
+        peer_nostr_pubkey: peer_nostr_pubkey_hex,
     };
 
     Ok((gift_wrap_event, state))

@@ -61,6 +61,9 @@ pub enum KeychatError {
 
     #[error("storage error: {0}")]
     Storage(String),
+
+    #[error("identity error: {0}")]
+    Identity(String),
 }
 
 impl From<libsignal_protocol::SignalProtocolError> for KeychatError {

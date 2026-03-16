@@ -98,7 +98,7 @@ pub use friend_request::{
     send_signal_message, FriendRequestAccepted, FriendRequestReceived, FriendRequestState,
 };
 pub use giftwrap::{create_gift_wrap, unwrap_gift_wrap, UnwrappedMessage};
-pub use identity::{EphemeralKeypair, Identity, IdentityWithMnemonic};
+pub use identity::{EphemeralKeypair, Identity, IdentityWithMnemonic, normalize_pubkey};
 pub use message::{
     FileCategory, ForwardFrom, KCCashuPayload, KCFilePayload, KCFilesPayload,
     KCFriendApprovePayload, KCFriendRejectPayload, KCFriendRequestPayload, KCLightningPayload,
@@ -137,7 +137,7 @@ pub use signal_store::{CapturingSessionStore, SignalProtocolStoreBundle};
 pub use storage::{
     DerivedAddressSerialized, PeerAddressStateSerialized, PeerMapping, SecureStorage,
 };
-pub use transport::Transport;
+pub use transport::{Transport, DEFAULT_RELAYS};
 
 // Re-export key nostr types for convenience
 pub use nostr::{Event, EventId, Keys, Kind, PublicKey, SecretKey, Timestamp};

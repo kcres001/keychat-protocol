@@ -1,8 +1,16 @@
 //! Transport module: Nostr relay connection, subscription, and event publishing.
 //!
 //! Implements the Transport Layer from the Keychat Protocol v2 spec (§3).
-//! Connects to Nostr relays via WebSocket, subscribes to kind 1059 events
-//! by pubkey filter, publishes events, and deduplicates incoming events.
+//!
+//! **Multi-relay broadcast** (§3.1): Implementations MUST connect to multiple relays
+//! simultaneously and broadcast every published event to ALL connected relays.
+//! This provides redundancy (relay downtime tolerance), availability (first-delivery wins),
+//! and censorship resistance (no single relay can block communication).
+//!
+//! Subscriptions are registered on all connected relays. Deduplication ensures each
+//! event is processed only once even when received from multiple relays.
+//!
+//! A publish succeeds if at least one relay accepts the event.
 
 use crate::error::{KeychatError, Result};
 use nostr::prelude::*;
@@ -11,10 +19,23 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+/// Default Nostr relays for Keychat message transport.
+/// All messages are broadcast to every relay simultaneously (§3.1).
+pub const DEFAULT_RELAYS: &[&str] = &[
+    "wss://relay.keychat.io",
+    "wss://relay.damus.io",
+    "wss://relay.primal.net",
+    "wss://relay.ditto.pub",
+];
+
 /// A Nostr relay transport for sending and receiving Keychat events.
+///
+/// Connects to multiple relays simultaneously. All publishes are broadcast to
+/// every connected relay; all subscriptions are registered on every relay.
+/// Deduplication ensures events received from multiple relays are processed once.
 pub struct Transport {
     client: Client,
-    /// Track processed event IDs for deduplication
+    /// Track processed event IDs for deduplication across all relays
     processed_events: Arc<Mutex<HashSet<EventId>>>,
 }
 
@@ -31,7 +52,8 @@ impl Transport {
         })
     }
 
-    /// Connect to a Nostr relay.
+    /// Add a Nostr relay. Call multiple times to add multiple relays.
+    /// All subsequent publishes and subscriptions will include this relay.
     pub async fn add_relay(&self, url: &str) -> Result<()> {
         self.client
             .add_relay(url)
@@ -73,7 +95,8 @@ impl Transport {
         Ok(output.val)
     }
 
-    /// Publish an event to connected relays.
+    /// Publish an event to ALL connected relays simultaneously.
+    /// Succeeds if at least one relay accepts the event.
     pub async fn publish_event(&self, event: Event) -> Result<EventId> {
         let output = self
             .client

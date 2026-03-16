@@ -126,6 +126,30 @@ impl Identity {
     }
 }
 
+/// Normalize a Nostr public key: accepts both npub1... (bech32) and hex formats.
+///
+/// Returns the hex-encoded public key string.
+///
+/// # Examples
+/// ```
+/// use libkeychat::normalize_pubkey;
+/// // Hex passthrough
+/// let hex = normalize_pubkey("c002c688982a997c93e877e140ce5c915d624157770e7ca4e7bef6c1da72d033").unwrap();
+/// assert_eq!(hex, "c002c688982a997c93e877e140ce5c915d624157770e7ca4e7bef6c1da72d033");
+/// ```
+pub fn normalize_pubkey(input: &str) -> crate::Result<String> {
+    let trimmed = input.trim();
+    if trimmed.starts_with("npub1") {
+        let pk = PublicKey::from_bech32(trimmed)
+            .map_err(|e| crate::KeychatError::Identity(format!("invalid npub: {e}")))?;
+        Ok(pk.to_hex())
+    } else {
+        let _ = PublicKey::from_hex(trimmed)
+            .map_err(|e| crate::KeychatError::Identity(format!("invalid hex pubkey: {e}")))?;
+        Ok(trimmed.to_string())
+    }
+}
+
 impl EphemeralKeypair {
     /// Generate a new random ephemeral keypair.
     pub fn generate() -> Self {
@@ -227,5 +251,27 @@ mod tests {
         let hex = gen.identity.pubkey_hex();
         assert_eq!(hex, hex.to_lowercase());
         assert!(!hex.starts_with("0x"));
+    }
+}
+
+#[cfg(test)]
+mod normalize_tests {
+    use super::*;
+    
+    #[test]
+    fn test_normalize_npub() {
+        // Generate a keypair and test roundtrip
+        let keys = Keys::generate();
+        let hex = keys.public_key().to_hex();
+        let npub = keys.public_key().to_bech32().unwrap();
+        
+        assert_eq!(normalize_pubkey(&hex).unwrap(), hex);
+        assert_eq!(normalize_pubkey(&npub).unwrap(), hex);
+    }
+    
+    #[test]
+    fn test_normalize_invalid() {
+        assert!(normalize_pubkey("npub1invalid").is_err());
+        assert!(normalize_pubkey("not_a_key").is_err());
     }
 }
