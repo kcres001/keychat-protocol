@@ -46,13 +46,15 @@ ed25519-dalek = { version = "2", features = ["rand_core"] }
 pqcrypto-kyber = { version = "0.7.6", default-features = false, features = ["std"] }
 pqcrypto-traits = "0.3"
 
-# MLS (RFC 9420) — Keychat OpenMLS fork
-openmls = { git = "https://github.com/keychat-io/openmls.git", branch = "kc4", package = "openmls" }
-openmls_traits = { git = "https://github.com/keychat-io/openmls.git", branch = "kc4", package = "openmls_traits" }
-openmls_sqlite_storage = { git = "https://github.com/keychat-io/openmls.git", branch = "kc4", package = "openmls_sqlite_storage" }
-openmls_basic_credential = { git = "https://github.com/keychat-io/openmls.git", branch = "kc4", package = "openmls_basic_credential" }
-openmls_rust_crypto = { git = "https://github.com/keychat-io/openmls.git", branch = "kc4", package = "openmls_rust_crypto" }
-kc = { git = "https://github.com/keychat-io/openmls.git", branch = "kc4", package = "kc" }
+# MLS (RFC 9420) — Official OpenMLS v0.8.1
+openmls = "0.8.1"
+openmls_traits = "0.5.0"
+openmls_basic_credential = "0.5.0"
+openmls_rust_crypto = "0.5.1"
+openmls_sqlite_storage = "0.2.0"
+tls_codec = { version = "0.4", features = ["derive", "serde"] }
+# Pin keccak to pre-release matching sha3 0.11.0-rc.8's requirement
+keccak = "=0.2.0-rc.2"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -65,7 +67,7 @@ serde_json = "1"
 
 # Utilities
 rand = "0.9"
-rusqlite = { version = "0.31", features = ["bundled-sqlcipher"] }
+rusqlite = { version = "0.32", features = ["bundled-sqlcipher"] }
 hex = "0.4"
 base64 = "0.22"
 thiserror = "2"

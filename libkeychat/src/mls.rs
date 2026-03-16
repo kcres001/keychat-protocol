@@ -10,8 +10,8 @@
 //! - KeyPackage publish/parse (kind 10443)
 
 use base64::Engine;
-use kc::group_context_extension::NostrGroupDataExtension;
-use kc::openmls_rust_persistent_crypto::OpenMlsRustPersistentCrypto;
+use crate::mls_extension::NostrGroupDataExtension;
+use crate::mls_provider::OpenMlsRustPersistentCrypto;
 use openmls::prelude::*;
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::types::Ciphersuite;
@@ -171,7 +171,6 @@ impl MlsParticipant {
         let group_create_config = MlsGroupCreateConfig::builder()
             .capabilities(capabilities)
             .with_group_context_extensions(group_context_extensions)
-            .map_err(|e| KeychatError::Mls(format!("group context ext error: {e}")))?
             .use_ratchet_tree_extension(true)
             .build();
 
@@ -218,9 +217,10 @@ impl MlsParticipant {
         let welcome_in = MlsMessageIn::tls_deserialize_exact(welcome_bytes)
             .map_err(|e| KeychatError::Mls(format!("deserialize welcome: {e}")))?;
 
-        let welcome = welcome_in
-            .into_welcome()
-            .ok_or_else(|| KeychatError::Mls("message is not a Welcome".to_string()))?;
+        let welcome = match welcome_in.extract() {
+            MlsMessageBodyIn::Welcome(w) => w,
+            _ => return Err(KeychatError::Mls("message is not a Welcome".to_string())),
+        };
 
         let join_config = MlsGroupJoinConfig::builder()
             .use_ratchet_tree_extension(true)
@@ -247,7 +247,7 @@ impl MlsParticipant {
     pub fn encrypt(&self, group_id: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
         let mut group = self.load_group(group_id)?;
 
-        let (msg_out, _) = group
+        let msg_out = group
             .create_message(self.provider.inner(), &self.signer, plaintext)
             .map_err(|e| KeychatError::Mls(format!("encrypt error: {e}")))?;
 
@@ -267,8 +267,8 @@ impl MlsParticipant {
             .map_err(|e| KeychatError::Mls(format!("deserialize msg: {e}")))?;
 
         let protocol_msg = msg_in
-            .into_protocol_message()
-            .ok_or_else(|| KeychatError::Mls("not a protocol message".to_string()))?;
+            .try_into_protocol_message()
+            .map_err(|e| KeychatError::Mls(format!("not a protocol message: {e}")))?;
 
         let processed = group
             .process_message(self.provider.inner(), protocol_msg)
@@ -276,14 +276,13 @@ impl MlsParticipant {
 
         // Extract sender credential identity
         let sender_identity = processed
-            .0
             .credential()
             .serialized_content()
             .to_vec();
         let sender_id = String::from_utf8(sender_identity)
             .unwrap_or_else(|_| "unknown".to_string());
 
-        match processed.0.into_content() {
+        match processed.into_content() {
             ProcessedMessageContent::ApplicationMessage(app_msg) => {
                 Ok((app_msg.into_bytes(), sender_id))
             }
@@ -366,14 +365,14 @@ impl MlsParticipant {
             .map_err(|e| KeychatError::Mls(format!("deserialize commit: {e}")))?;
 
         let protocol_msg = msg_in
-            .into_protocol_message()
-            .ok_or_else(|| KeychatError::Mls("not a protocol message".to_string()))?;
+            .try_into_protocol_message()
+            .map_err(|e| KeychatError::Mls(format!("not a protocol message: {e}")))?;
 
         let processed = group
             .process_message(self.provider.inner(), protocol_msg)
             .map_err(|e| KeychatError::Mls(format!("process commit error: {e}")))?;
 
-        match processed.0.into_content() {
+        match processed.into_content() {
             ProcessedMessageContent::StagedCommitMessage(staged) => {
                 group
                     .merge_staged_commit(self.provider.inner(), *staged)
@@ -388,7 +387,7 @@ impl MlsParticipant {
     pub fn export_secret(&self, group_id: &str, label: &str, context: &[u8], len: usize) -> Result<Vec<u8>> {
         let group = self.load_group(group_id)?;
         group
-            .export_secret(self.provider.inner(), label, context, len)
+            .export_secret(self.provider.inner().crypto(), label, context, len)
             .map_err(|e| KeychatError::Mls(format!("export_secret error: {e}")))
     }
 
@@ -695,9 +694,11 @@ pub fn parse_key_package(event: &nostr::Event) -> Result<KeyPackage> {
     let kp_in = KeyPackageIn::tls_deserialize_exact(&kp_bytes)
         .map_err(|e| KeychatError::Mls(format!("deserialize key package: {e}")))?;
 
-    // Convert KeyPackageIn to KeyPackage (unverified for now — in production
-    // you'd verify with the crypto provider)
-    Ok(kp_in.into())
+    // Validate the KeyPackage with the crypto provider
+    let crypto = openmls_rust_crypto::RustCrypto::default();
+    kp_in
+        .validate(&crypto, ProtocolVersion::Mls10)
+        .map_err(|e| KeychatError::Mls(format!("validate key package: {e}")))
 }
 
 // ─── MLS Group Invite payload ───────────────────────────────────────────────

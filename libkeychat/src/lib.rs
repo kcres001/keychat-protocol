@@ -77,6 +77,8 @@ pub mod identity;
 pub mod media;
 pub mod message;
 pub mod mls;
+pub mod mls_extension;
+pub mod mls_provider;
 pub mod nip44;
 pub mod payment;
 pub mod session;
