@@ -13,6 +13,7 @@
 //! A publish succeeds if at least one relay accepts the event.
 
 use crate::error::{KeychatError, Result};
+use crate::stamp::StampManager;
 use nostr::prelude::*;
 use nostr_sdk::prelude::*;
 use std::collections::HashSet;
@@ -37,6 +38,8 @@ pub struct Transport {
     client: Client,
     /// Track processed event IDs for deduplication across all relays
     processed_events: Arc<Mutex<HashSet<EventId>>>,
+    /// Optional stamp manager for auto-attaching ecash stamps
+    stamp_manager: Option<Arc<StampManager>>,
 }
 
 impl Transport {
@@ -49,7 +52,18 @@ impl Transport {
         Ok(Self {
             client,
             processed_events: Arc::new(Mutex::new(HashSet::new())),
+            stamp_manager: None,
         })
+    }
+
+    /// Set the stamp manager for auto-attaching ecash stamps on publish.
+    pub fn set_stamp_manager(&mut self, manager: Arc<StampManager>) {
+        self.stamp_manager = Some(manager);
+    }
+
+    /// Get a reference to the stamp manager, if configured.
+    pub fn stamp_manager(&self) -> Option<&Arc<StampManager>> {
+        self.stamp_manager.as_ref()
     }
 
     /// Add a Nostr relay. Call multiple times to add multiple relays.
@@ -97,7 +111,25 @@ impl Transport {
 
     /// Publish an event to ALL connected relays simultaneously.
     /// Succeeds if at least one relay accepts the event.
+    ///
+    /// If a StampManager is configured, this will check each relay's fee rules
+    /// and log a warning if stamps are required but unavailable. The event is
+    /// always published via the standard nostr-sdk path; stamp attachment
+    /// requires using `publish_event_stamped` for raw WebSocket delivery.
     pub async fn publish_event(&self, event: Event) -> Result<EventId> {
+        if let Some(stamp_mgr) = &self.stamp_manager {
+            // Log stamp status for awareness (actual stamp attachment uses publish_event_stamped)
+            let fee = stamp_mgr
+                .get_fee_for_kind("wss://relay.keychat.io", event.kind)
+                .await;
+            if fee.is_some() && !stamp_mgr.has_wallet() {
+                tracing::warn!(
+                    "relay requires ecash stamp for kind:{} but no wallet configured",
+                    event.kind.as_u16()
+                );
+            }
+        }
+
         let output = self
             .client
             .send_event(event)
@@ -105,6 +137,31 @@ impl Transport {
             .map_err(|e| KeychatError::Transport(format!("publish failed: {e}")))?;
 
         Ok(output.val)
+    }
+
+    /// Publish an event with ecash stamp to a specific relay.
+    ///
+    /// Uses the StampManager to create a stamp if the relay requires one,
+    /// then formats and returns the stamped message for raw WebSocket delivery.
+    /// If stamping fails (e.g., no funds), publishes without stamp and logs a warning.
+    pub async fn publish_event_stamped(
+        &self,
+        event: &Event,
+        relay_url: &str,
+    ) -> Result<String> {
+        if let Some(stamp_mgr) = &self.stamp_manager {
+            match stamp_mgr.stamp_event(event, relay_url).await {
+                Ok(msg) => return Ok(msg),
+                Err(e) => {
+                    tracing::warn!("stamp creation failed for {relay_url}, publishing without stamp: {e}");
+                }
+            }
+        }
+
+        // Fallback: standard EVENT message without stamp
+        let event_json = serde_json::to_value(event)
+            .map_err(|e| KeychatError::Transport(format!("event serialize: {e}")))?;
+        Ok(serde_json::json!(["EVENT", event_json]).to_string())
     }
 
     /// Check if an event has already been processed (deduplication).

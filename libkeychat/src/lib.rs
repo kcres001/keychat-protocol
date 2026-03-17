@@ -81,6 +81,7 @@ pub mod mls_extension;
 pub mod mls_provider;
 pub mod nip44;
 pub mod payment;
+pub mod stamp;
 pub mod session;
 pub mod signal_keys;
 pub mod signal_session;
@@ -112,6 +113,9 @@ pub use media::{
 };
 pub use payment::{
     attach_ecash_stamp, build_cashu_message, build_lightning_message, validate_cashu_token,
+};
+pub use stamp::{
+    fetch_relay_info, CashuWallet, RelayFeeRule, RelayFees, RelayInfo, StampManager,
 };
 pub use group::{
     create_signal_group, receive_group_invite, receive_group_message, send_group_dissolve,

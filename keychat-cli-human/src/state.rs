@@ -79,6 +79,8 @@ pub struct AppState {
     pub pending_friend_requests: Arc<RwLock<Vec<PendingFriendRequest>>>,
     /// Owner's nostr pubkey. First peer to add us becomes owner.
     pub owner: Arc<RwLock<Option<String>>>,
+    /// Ecash stamp manager for paid relay publishing.
+    pub stamp_manager: Arc<libkeychat::StampManager>,
 }
 
 /// Pending outbound friend request (we sent, waiting for acceptance).
@@ -138,6 +140,18 @@ impl AppState {
 
         let owner = config.owner.clone();
 
+        // Initialize stamp manager (without wallet for now — wallet setup is optional)
+        let stamp_manager = Arc::new(libkeychat::StampManager::without_wallet());
+        // Cache relay fees in background
+        {
+            let sm = stamp_manager.clone();
+            let urls: Vec<String> = relay_urls.to_vec();
+            tokio::spawn(async move {
+                let url_refs: Vec<&str> = urls.iter().map(|s| s.as_str()).collect();
+                sm.fetch_and_cache_fees(&url_refs).await;
+            });
+        }
+
         Ok(Self {
             identity,
             keys,
@@ -154,6 +168,7 @@ impl AppState {
             pending_outbound_frs: Arc::new(RwLock::new(HashMap::new())),
             pending_friend_requests: Arc::new(RwLock::new(Vec::new())),
             owner: Arc::new(RwLock::new(owner)),
+            stamp_manager,
         })
     }
 

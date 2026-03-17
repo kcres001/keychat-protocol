@@ -65,6 +65,13 @@ async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# HTTP client (for NIP-11 relay info fetching)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Cashu Development Kit (ecash wallet for stamps)
+cdk = { version = "0.15.1", default-features = false, features = ["wallet"] }
+cdk-common = { version = "0.15.1", default-features = false }
+
 # Utilities
 rand = "0.9"
 rusqlite = { version = "0.32", features = ["bundled-sqlcipher"] }
