@@ -318,7 +318,7 @@ pub fn build_friend_request_payload(
     let time = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs();
+        .as_millis() as u64;
 
     let global_sign = compute_global_sign(
         nostr_secret_key,

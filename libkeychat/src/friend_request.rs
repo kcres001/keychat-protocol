@@ -62,7 +62,7 @@ pub async fn send_friend_request(
     let time = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs();
+        .as_millis() as u64;
 
     let signal_identity_key_hex = signal_participant.identity_public_key_hex();
     let global_sign = compute_global_sign(
@@ -244,7 +244,7 @@ pub async fn accept_friend_request(
     let time = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs();
+        .as_millis() as u64;
 
     let my_signal_id_hex = my_signal.identity_public_key_hex();
     let sig = compute_global_sign(
@@ -304,7 +304,7 @@ pub async fn send_friend_request_persistent(
     let time = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs();
+        .as_millis() as u64;
 
     let signal_identity_key_hex = signal_participant.identity_public_key_hex();
     let global_sign = compute_global_sign(
@@ -443,7 +443,7 @@ pub async fn accept_friend_request_persistent(
     let time = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs();
+        .as_millis() as u64;
 
     let my_signal_id_hex = my_signal.identity_public_key_hex();
     let sig = compute_global_sign(

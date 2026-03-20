@@ -86,7 +86,7 @@ pub fn create_signal_prekey_auth(
     let time = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs();
+        .as_millis() as u64;
 
     let sig = compute_global_sign(nostr_secret_key, nostr_pubkey_hex, signal_pubkey_hex, time)?;
 
